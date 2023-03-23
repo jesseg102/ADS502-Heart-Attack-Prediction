@@ -1,0 +1,259 @@
+---
+title: "ADS 502 - Heart Attack Classification"
+author: "Halee Staggs, Vicky van der Wagt, Jesse Gutierrez"
+date: "2023-03-16"
+output: pdf_document
+---
+
+
+
+```{r}
+#load package libraries
+library(ggplot2)
+library(Hmisc)
+library(corrplot)
+library(tidyverse)
+library(caret)
+library(C50)
+library(rpart)
+
+```
+# The Data does not have any missing values. 
+
+```{r}
+#read in data file
+data <- read_csv("C:/Users/halee/OneDrive/Desktop/heart.csv")
+
+#examine data types and descriptives
+summary(data)
+describe(data)
+
+#view dataset 
+View(data)
+```
+# Some variables need to be updated to factors because they are categorical/ordinal
+```{r}
+#update discrete/binary variables to factors
+data$sex <- factor(data$sex)
+data$cp <- factor(data$cp)
+data$fbs <- factor(data$fbs)
+data$restecg <- factor(data$restecg)
+data$exng <- factor(data$exng)
+data$slp <- factor(data$slp)
+data$caa <- factor(data$caa)
+data$output <- factor(data$output)
+
+#reexamine data summary for data types
+summary(data)
+describe(data)
+```
+
+# Examine raw distribution of each variable.
+```{r}
+#age is normally distributed
+boxplot(data$age, main = "Distribution of Patients' Ages", ylab = 'Age')
+```
+```{r}
+#the sample has twice as many women as men
+plot(data$sex, main = "Distribution of Sex", ylab = 'Frequency', xlab = 'Sex', names = c("Male","Female"))
+```
+
+```{r}
+#each type of chest pain has a different frequency
+plot(data$cp, main = "Distribution of Chest Pain Types", ylab = 'Frequency', xlab = "Chest Pain Type", 
+     names = c("Typical Angina", "Atypical Angina", "Non-Anginal Pain", "Asymptomatic"))
+```
+
+```{r}
+#blood pressure is fairly normally distributed with a few outliers at the top end. Although they are outliers, this data is plausible and can be kept in the dataset as is
+boxplot(data$trtbps, main = "Distribution of Resting Blood Pressure", ylab = 'Frequency', xlab = "Resting Blood Pressure (mmHg)")
+```
+```{r}
+#cholesterol is normally distributed with a few outliers at the top end. These are plausible values and can be kept in the dataset
+boxplot(data$chol, main = "Distribution of Cholesterol Levels", ylab = 'Cholesterol (mg/dl)')
+```
+
+```{r}
+#the two groups are disproportionately represented with the majority of the sample being under 120
+plot(data$fbs, main = "Fasting Blood Sugar Distribution", ylab = 'Frequency', xlab = 'Blood Sugar', 
+     names = c('<= 120 mg/dl','> 120 mg/dl'))  
+```     
+     
+```{r}
+#left ventricular hypertrophy is underrepresented 
+plot(data$restecg, main = "Distribtion of Resting Electrocardiographic Results", ylab = 'Frequency', xlab = 'ECG Results', 
+     names = c("Normal", "ST-T Wave", "L. Vent. Hyper."))
+```
+```{r}
+#normally distributed 
+boxplot(data$thalachh, main = "Distribution of Maximum Heart Rate Achieved", ylab = 'Heart Rate (beats per minute)')
+```
+```{r}
+plot(data$exng, main = "Distribution of Exercise-Induced Angina", xlab = 'History of Agina', ylab = 'Frequency', 
+     names = c("No", "Yes"))
+```
+
+```{r}
+#positively skewed
+plot(data$caa, main = "Number of Major Vessels Distribution", ylab = 'Frequency', xlab = 'Number of Vessels')
+```
+
+
+```{r}
+#the less chance group is slightly underrepresented - balance groups before running classification model
+plot(data$output, main = "Distribution of Heart Attack Risk", ylab = 'Frequency', xlab = 'Chance of Heart Attack', 
+     names = c("Less Chance", "More Chance"))
+```
+
+
+# Summary of data exploration: there are no true outliers in the data. Can leave the data as is. Some variables were not explained on the Kaggle page, so I left those ones out since I cannot interpret them. Listed below.
+## data$thall
+## data$oldpeak
+## data$slp
+
+# Determine if numerical variables are correlated
+```{r}
+#run correlation of numerical values
+corrs <- cor(data[,c(1,4,5,8)])
+corrplot(corrs, method = 'number', tl.cex = .9, number.cex = .9)
+
+#variables are weakly correlated, age and maximum heart rate have strongest correlation -0.4
+
+```
+
+# Prepping the data for modeling
+
+# Check for Class Imbalance
+```{r}
+#both classes are well represented, no need to balance 
+fx_table <- table(data$output)
+prop.table(fx_table)
+
+```
+
+## Splitting the data
+```{r}
+set.seed(2)
+data_split <- createDataPartition(data$output, p = .7, list = FALSE, times = 1)
+data_train <- data[data_split,]
+data_test <- data[-data_split,]
+
+#verify split proportions
+tr_split <- round((dim(data_train)[1]/dim(data)[1])*100,1)
+ts_split <- round((dim(data_test)[1]/dim(data)[1])*100,1)
+tr_n <- dim(data_train)[1]
+ts_n <- dim(data_test)[1]
+split_train <- as.data.frame(cbind(tr_split,tr_n))
+split_test <- as.data.frame(cbind(ts_split, ts_n))
+split_params <- merge(split_train, split_test)
+split_params
+```
+
+# Model Required - Binary Classification Model
+## decision tree (need binary splits), CART5.0 (leave data as is - no binary split), KNN (all variables must be scaled - except output variable), bayesian network (convert continuous to ordinal & remove correlated variables)
+
+# Model Testing - Decision Tree CART
+```{r}
+# Create the formula for the decision tree based on assigned variables
+formula <- output ~ thalachh + cp + exng + oldpeak
+
+# Build decision tree model
+cart_model <- rpart(formula, data = data_train, method = "class")
+
+# Had the adjust the dimensions of decision tree as it was too crammed
+par(mar=c(5,5,2,2))
+plot(cart_model, main="Classification Tree", cex=0.7, margin=0.1, branch=0.6) 
+text(cart_model, use.n=TRUE, all=TRUE, cex=0.7)
+
+# In these sets of codes, it added number of observations in each leaf
+n_leaf <- table(cart_model$where)
+n_leaf_pct <- paste0(sprintf("%.2f", prop.table(n_leaf)*100), "%")
+n_leaf_text <- paste0(n_leaf, " (", n_leaf_pct, ")")
+legend("topright", legend=n_leaf_text, bty="n", cex=0.7)
+
+# Predict on test data
+y_pred <- predict(cart_model, training_data, type = "class")
+
+# Applied model on test data
+predict_data <- predict(cart_model, data_test[-14], type = 'class')
+
+# Created a table to determine the accuracy of the model
+output <- table(data_test$output, predict_data)
+output
+
+# Calculate the accuracy of the created model
+accuracy <- round((sum(diag(output)) / sum(output)) * 100, 4)
+print(paste('The accuracy of the model is:', paste(accuracy), paste('%'), collapse = ' x '))
+
+```
+
+# Model Testing - Decision Tree with C5.0
+```{r}
+#decision tree
+C5_heart <- C5.0(formula = output ~ age + sex + cp + trtbps + chol + fbs + restecg + thalachh + exng + caa, 
+                 data = data_train) 
+
+#Plot model
+plot(C5_heart)
+
+#test set prediction
+ypred_c5 <- predict(object = C5_heart, newdata = data_test[,-14])
+
+# confusion matrix
+cont_table <- table(data_test$output, ypred_c5)
+rownames(cont_table) <- c('Actual: Less', 'Actual: More')
+colnames(cont_table) <- c('Pred: Less', 'Pred: More')
+cont_table <- addmargins(A = cont_table, FUN = list(Total = sum), quiet = TRUE)
+cont_table
+
+#Evaluation
+
+## Model 1: Accuracy
+C5_acc <- round(((cont_table[1,1]+cont_table[2,2])/dim(data_test)[1]*100),1)
+
+#Model 1: Error rate
+C5_err <- round((100 - C5_acc),1)
+
+#Model 1: Sensitivity
+C5_sens <- round((cont_table[2,2]/(cont_table[2,1]+cont_table[2,2]))*100,1)
+
+#Model 1: Specificity
+C5_spec <- round((cont_table[1,1]/(cont_table[1,1]+cont_table[1,2]))*100,1)
+
+#Model 1: Precision
+C5_prec <- round((cont_table[2,2]/(cont_table[2,2]+cont_table[1,2]))*100,1)
+
+#Model 1: F(1)
+C5_f1 <-  round((2*((C5_prec*C5_spec)/(C5_prec+C5_spec))),1)
+
+#combine evals into a matrix
+eval_c5_table <- cbind(C5_acc, C5_err, C5_sens, C5_spec, C5_prec, C5_f1)
+eval_c5_table
+
+```
+
+# Model Testing - KNN
+```{r}
+#first scale the data
+data_train_knn <- scale(data_train[,-14])
+data_test_knn <- scale(data_test[,-14])
+#knn
+
+
+#test set
+
+#evaluation
+```
+
+# Model Testing - Bayesian Network
+```{r}
+#bayesian network
+
+#test set
+
+#evaluation
+```
+
+# References
+## Kuhn, M. (2019). The caret package. https://topepo.github.io/caret/index.html
+## Larose, C., & Larose, D. (2019). Data Science Using Python and R. John Wiley & Sons, Inc. 
