@@ -46,9 +46,6 @@ describe(data)
 
 
 
-
-
-
 # Some variables need to be updated to factors because they are categorical/ordinal
 ```{r}
 #update discrete/binary variables to factors
@@ -246,12 +243,25 @@ y_pred <- predict(cart_model, data_train, type = "class")
 predict_data <- predict(cart_model, data_test[-14], type = 'class')
 
 # Created a table to determine the accuracy of the model
+confusionMatrix(data_test$output, predict_data)
 output <- table(data_test$output, predict_data)
-output
 
-# Calculate the accuracy of the created model
-accuracy_cart <- round((sum(diag(output)) / sum(output)) * 100, 4)
-print(paste('The accuracy of the model is:', paste(accuracy_cart), paste('%'), collapse = ' x '))
+TP_CART <- output[1,1]
+FN_CART <- output[2,1]
+FP_CART <- output[1,2]
+TN_CART <- output[2,2] 
+
+decimals <-1
+
+accuracy_CART <- round((((TP_CART+TN_CART) / (TP_CART + TN_CART + FP_CART + FN_CART)))*100,decimals)
+error_rate_CART <- round((100-accuracy_CART),decimals)
+sensitivity_CART <- round((TP_CART/(FN_CART+TP_CART))*100,decimals)
+specificity_CART <- round((TN_CART/(TN_CART+FP_CART))*100,decimals)
+precision_CART <- round((TP_CART/(TP_CART+FP_CART))*100,decimals)
+recall_CART <- sensitivity_CART
+f1_CART <- round((2*((precision_CART*recall_CART)/(precision_CART + recall_CART))),decimals)
+f2_CART <- round((5*((precision_CART*recall_CART)/((4*precision_CART)+recall_CART))),decimals)
+f3_CART <- round((1.25*((precision_CART*recall_CART)/((0.25*precision_CART)+ recall_CART))),decimals)
 ```
 
 # Model Testing - Decision Tree with C5.0
@@ -323,12 +333,28 @@ plot(rf01)
 rf_pred <- predict(rf01, newdata = data_test)
 
 # Create a confusion matrix
-library(caret)
 confusionMatrix(rf_pred, data_test$output)
+rf_final <- table(rf_pred, data_test$output)
+
+TP_rf <- rf_final[1,1]
+FN_rf <- rf_final[2,1]
+FP_rf <- rf_final[1,2]
+TN_rf <- rf_final[2,2] 
+
+decimals <-1
+
+accuracy_rf <- round((((TP_rf+TN_rf) / (TP_rf + TN_rf + FP_rf + FN_rf)))*100,decimals)
+error_rate_rf <- round((100-accuracy_nn),decimals)
+sensitivity_rf <- round((TP_rf/(FN_rf+TP_rf))*100,decimals)
+specificity_rf <- round((TN_rf/(TN_rf+FP_rf))*100,decimals)
+precision_rf <- round((TP_rf/(TP_rf+FP_rf))*100,decimals)
+recall_rf <- sensitivity_rf
+f1_rf <- round((2*((precision_rf*recall_rf)/(precision_rf + recall_rf))),decimals)
+f2_rf <- round((5*((precision_rf*recall_rf)/((4*precision_rf)+recall_rf))),decimals)
+f3_rf <- round((1.25*((precision_rf*recall_rf)/((0.25*precision_rf)+ recall_rf))),decimals)
+
 
 ```
-
-
 
 # Model Testing - KNN
 ```{r}
@@ -415,12 +441,13 @@ cat("neural network accuracy: ", accuracy_nn)
 DT = data.table(
   Model_Evaluation_Table= c("accuracy", "error rate", "sensitivity", "specificity", "precision", "F1", "F2", "F3"),
   Baseline=c(accuracy_baseline, "","","","","","",""),
-  CART= c(accuracy_cart,"error rate", "sensitivity", "specificity", "precision", "F1", "F2", "F3"),
+  CART= c(accuracy_CART, error_rate_CART, sensitivity_CART, specificity_CART, precision_CART,f1_CART, f2_CART, f3_CART),
   C5.0=c(C5_acc, C5_err, C5_sens, C5_spec, C5_prec, C5_f1, "F2","F3"),
   LogisticRegression=c("accuracy", "error rate", "sensitivity", "specificity", "precision","F1", "F2", "F3"),
   KNN=c("accuracy", "error rate", "sensitivity", "specificity", "precision", "F1", "F2", "F3"),
   NaiveBayes=c(accuracy_nb, error_rate_nb, sensitivity_nb, specificity_nb, precision_nb,f1_nb, f2_nb, f3_nb),
-  NeuralNetwork=c(accuracy_nn, error_rate_nn, sensitivity_nn, specificity_nn, precision_nn, f1_nn, f2_nn, f3_nn))
+  NeuralNetwork=c(accuracy_nn, error_rate_nn, sensitivity_nn, specificity_nn, precision_nn, f1_nn, f2_nn, f3_nn),
+  RandomForest=c(accuracy_rf, error_rate_rf, sensitivity_rf, specificity_rf, precision_rf,f1_rf, f2_rf, f3_rf))
 
 DT
 ```
