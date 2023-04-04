@@ -180,6 +180,13 @@ corrplot(corrs, method = 'number', tl.cex = .9, number.cex = .9)
 #variables are weakly correlated, age and maximum heart rate have strongest correlation -0.4
 
 ```
+
+```{r}
+
+head(data, n = 3)
+
+```
+
 # Calculate descriptives
 ```{r}
 #numerical values
@@ -195,7 +202,7 @@ median(data$trtbps)
 min(data$trtbps)
 max(data$trtbps)
 
-median(data$caa)
+#median(data$caa)
 
 mean(data$chol)
 sd(data$chol)
@@ -269,14 +276,18 @@ accuracy_baseline = round(baselinetable[2]*100,1)
 
 cat("baseline accuracy (all positive/'1' model): ", accuracy_baseline,"\n")
 ```
-
-
+```{r}
+colnames(data)
+```
+```{r}
+head(data)
+```
 # Model Required - Binary Classification Model
 
 # Model Testing - Decision Tree CART
 ```{r}
 # Create the formula for the decision tree based on assigned variables
-formula <- output ~ age + sex + cp + slp + fbs + thall + caa
+formula <- output ~ age + sex + cp + slp + thall + caa
 
 # Build decision tree model
 cart_model <- rpart(formula, data = data_train, method = "class")
@@ -307,6 +318,59 @@ output
 accuracy_cart <- round((sum(diag(output)) / sum(output)) * 100, 4)
 print(paste('The accuracy of the model is:', paste(accuracy_cart), paste('%'), collapse = ' x '))
 
+```
+
+```{r}
+# The high feature importance score indicates the predictive attributes has on the output
+# As evident, caa and thall are the greatest predictive attributes
+var_importance <- varImp(cart_model)
+print(var_importance)
+```
+
+```{r}
+# Wanted to determine the feature importance using all attributes w/in CART model
+# Col names: age, sex, cp, trtbps, chol, fbs, restecg, thalachh, exng, oldpea, slp, caa, thall, output     
+# cp_cat, fbs_cat, restecg_cat, exng_cat, slp_cat, thall_cat, output_cat
+
+# Create the formula for the decision tree based on assigned variables
+formula <- output ~ age + oldpeak + caa + cp + exng_cat + thall_cat 
+
+# Build decision tree model
+cart_model <- rpart(formula, data = data_train, method = "class")
+summary(cart_model)
+
+# Had the adjust the dimensions of decision tree as it was too crammed
+par(mar=c(5,5,2,2))
+plot(cart_model, main="Classification Tree", cex=0.7, margin=0.1, branch=0.6) 
+text(cart_model, use.n=TRUE, all=TRUE, cex=0.7)
+
+# In these sets of codes, it added number of observations in each leaf
+n_leaf <- table(cart_model$where)
+n_leaf_pct <- paste0(sprintf("%.2f", prop.table(n_leaf)*100), "%")
+n_leaf_text <- paste0(n_leaf, " (", n_leaf_pct, ")")
+legend("topright", legend=n_leaf_text, bty="n", cex=0.7)
+
+# Predict on test data
+y_pred <- predict(cart_model, data_train, type = "class")
+
+# Applied model on test data
+predict_data <- predict(cart_model, data_test[-14], type = 'class')
+
+# Created a table to determine the accuracy of the model
+output <- table(data_test$output, predict_data)
+output
+
+# Calculate the accuracy of the created model
+accuracy_cart <- round((sum(diag(output)) / sum(output)) * 100, 4)
+print(paste('The accuracy of the model is:', paste(accuracy_cart), paste('%'), collapse = ' x '))
+
+```
+
+```{r}
+# The high feature importance score indicates the predictive attributes has on the output
+# As evident, caa and thall_cat are the greatest predictive attributes
+var_importance <- varImp(cart_model)
+print(var_importance)
 ```
 
 # Model Testing - Decision Tree with C5.0
@@ -353,7 +417,75 @@ C5_f1 <-  round((2*((C5_prec*C5_spec)/(C5_prec+C5_spec))),1)
 #combine evals into a matrix
 eval_c5_table <- cbind(C5_acc, C5_err, C5_sens, C5_spec, C5_prec, C5_f1)
 eval_c5_table
+
+# Display accuracy
+print(paste0("Accuracy: ", C5_acc, "%"))
 ```
+
+```{r}
+# The high feature importance score indicates the predictive attributes has on the output
+# As evident, caa and thall_cat are the greatest predictive attributes
+var_importance <- varImp(C5_heart)
+print(var_importance)
+```
+
+```{r}
+# Wanted to see if I could get same or higher accuracy w/ less attributes
+#decision tree
+#C5_heart <- C5.0(formula = output ~ age + sex + cp + slp + fbs + thall + caa, 
+#                 data = data_train) 
+C5_heart <- C5.0(formula = output ~ cp + thall_cat + caa, data = data_train) 
+summary(C5_heart)
+
+#Plot model
+plot(C5_heart)
+
+#test set prediction
+ypred_c5 <- predict(object = C5_heart, newdata = data_test[,-14])
+ypred_c5
+
+# confusion matrix
+c5_table <- table(data_test$output, ypred_c5)
+rownames(c5_table) <- c('Actual: Less', 'Actual: More')
+colnames(c5_table) <- c('Pred: Less', 'Pred: More')
+c5_table <- addmargins(A = c5_table, FUN = list(Total = sum), quiet = TRUE)
+c5_table
+
+#Evaluation
+
+# Model C5.0: Accuracy
+C5_acc <- round(((c5_table[1,1]+c5_table[2,2])/dim(data_test)[1]*100),1)
+
+#Model C5.0: Error rate
+C5_err <- round((100 - C5_acc),1)
+
+#Model C5.0: Sensitivity
+C5_sens <- round((c5_table[2,2]/(c5_table[2,1]+c5_table[2,2]))*100,1)
+
+#Model C5.0: Specificity
+C5_spec <- round((c5_table[1,1]/(c5_table[1,1]+c5_table[1,2]))*100,1)
+
+#Model C5.0: Precision
+C5_prec <- round((c5_table[2,2]/(c5_table[2,2]+c5_table[1,2]))*100,1)
+
+#Model C5.0: F(1)
+C5_f1 <-  round((2*((C5_prec*C5_spec)/(C5_prec+C5_spec))),1)
+
+#combine evals into a matrix
+eval_c5_table <- cbind(C5_acc, C5_err, C5_sens, C5_spec, C5_prec, C5_f1)
+eval_c5_table
+
+# Display accuracy
+print(paste0("Accuracy: ", C5_acc, "%"))
+```
+
+```{r}
+# The high feature importance score indicates the predictive attributes has on the output
+# As evident, cp is the greatest predictive attribute
+var_importance <- varImp(C5_heart)
+print(var_importance)
+```
+
 # Model Testing - Logistic Regression
 
 ```{r}
@@ -368,8 +500,8 @@ plot_model(logreg, sort.est = TRUE, show.values = TRUE, value.offset = .45, vlin
 
 #run test data through model
 ypred_log <- predict(logreg, newdata = data_test[,-14], type = 'response')
-#update output probabilites to binary 0/1
-ypred_log <- if_else(logreg_test > 0.5,1,0)
+#update output probabilities to binary 0/1
+ypred_log <- if_else(ypred_log > 0.5,1,0)
 
 #create contigency
 log_table <- table(data_test$output, ypred_log)
@@ -401,6 +533,76 @@ Log_f1 <-  round((2*((Log_prec*Log_spec)/(Log_prec+Log_spec))),1)
 #combine evals into a matrix
 eval_log_table <- cbind(Log_acc, Log_err, Log_sens, Log_spec, Log_prec, Log_f1)
 eval_log_table
+
+# Display accuracy
+print(paste0("Accuracy: ", Log_acc, "%"))
+```
+```{r}
+# The high feature importance score indicates the predictive attributes has on the output
+# As evident, cp2 is the greatest predictive attribute
+var_importance <- varImp(logreg)
+print(var_importance)
+```
+
+```{r}
+# Testing w/ other attributes
+# Original attributes used in the logistic regression
+#logreg <- glm(output ~ age + sex + cp + slp + fbs + thall + caa, 
+ #                data = data_train, family = 'binomial'(link = 'logit'))
+# Updated attributes
+logreg <- glm(output ~ sex + cp + chol + exng + slp_cat + caa, 
+                 data = data_train, family = 'binomial'(link = 'logit'))
+
+summary(logreg)
+#plot function to see odds ratio of each predictor
+plot_model(logreg, sort.est = TRUE, show.values = TRUE, value.offset = .45, vline.color = 'red',
+           axis.lim = c(0.000,35))
+
+#run test data through model
+ypred_log <- predict(logreg, newdata = data_test[,-14], type = 'response')
+#update output probabilities to binary 0/1
+ypred_log <- if_else(ypred_log > 0.5,1,0)
+
+#create contigency
+log_table <- table(data_test$output, ypred_log)
+rownames(log_table) <- c('Actual: Less', 'Actual: More')
+colnames(log_table) <- c('Pred: Less', 'Pred: More')
+log_table <- addmargins(A = log_table, FUN = list(Total = sum), quiet = TRUE)
+log_table
+
+#evaluation metrics
+
+## Model Log: Accuracy
+Log_acc <- round(((log_table[1,1]+log_table[2,2])/dim(data_test)[1]*100),1)
+
+#Model Log: Error rate
+Log_err <- round((100 - Log_acc),1)
+
+#Model Log: Sensitivity
+Log_sens <- round((log_table[2,2]/(log_table[2,1]+log_table[2,2]))*100,1)
+
+#Model Log: Specificity
+Log_spec <- round((log_table[1,1]/(log_table[1,1]+log_table[1,2]))*100,1)
+
+#Model Log: Precision
+Log_prec <- round((log_table[2,2]/(log_table[2,2]+log_table[1,2]))*100,1)
+
+#Model Log: F(1)
+Log_f1 <-  round((2*((Log_prec*Log_spec)/(Log_prec+Log_spec))),1)
+
+#combine evals into a matrix
+eval_log_table <- cbind(Log_acc, Log_err, Log_sens, Log_spec, Log_prec, Log_f1)
+eval_log_table
+
+# Display accuracy
+print(paste0("Accuracy: ", Log_acc, "%"))
+```
+
+```{r}
+# The high feature importance score indicates the predictive attributes has on the output
+# As evident, cp2 is the greatest predictive attribute
+var_importance <- varImp(logreg)
+print(var_importance)
 ```
 
 # Model Testing - Random Forest
@@ -422,6 +624,13 @@ rf_pred <- predict(rf01, newdata = data_test[,-14])
 library(caret)
 confusionMatrix(rf_pred, data_test$output)
 
+```
+
+```{r}
+# The high feature importance score indicates the predictive attributes has on the output
+# As evident, cp is the greatest predictive attribute
+var_importance <- varImp(rf01)
+print(var_importance)
 ```
 
 # Model Testing - Bayesian Network (Naive Bayes)
@@ -458,7 +667,9 @@ f3_nb <- round((1.25*((precision_nb*recall_nb)/((0.25*precision_nb)+ recall_nb))
 
 cat("naive bayes accuracy: ", accuracy_nb)
 ```
+
 # Model Testing - Neural Network
+
 ```{r}
 nn_heart <-  nnet(output ~ age + sex + cp + slp + fbs + thall + caa, data = data_train, size=20)
 yprednn <- predict(nn_heart, data_test[,-14], type="class")
