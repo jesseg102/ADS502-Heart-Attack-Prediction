@@ -98,7 +98,7 @@ data$slp_cat<-c("0"="upsloping","1"="flat", "2"="downsloping")[data$slp]
 #thalassemia
 data$thall_cat<-c("0"="null","1"="fixed defect", "2"="normal", "3"="reversable defect")[data$thall]
 
-#thalassemia
+#output
 data$output_cat<-c("0"="low risk","1"="high risk")[data$output]
 
 #adding a categorical category for age so we can test for multicollinearity using 
@@ -152,6 +152,17 @@ boxplot(data$thalachh, main = "Distribution of Maximum Heart Rate Achieved", yla
 ```{r}
 plot(data$exng, main = "Distribution of Exercise-Induced Angina", xlab = 'History of Agina', ylab = 'Frequency', 
      names = c("No", "Yes"), col=plot_color)
+```
+
+```{r}
+plot(data$slp, main = "Distribution of Exercise Test Results", xlab = 'Angiographic Results', ylab = 'Frequency', 
+     names = c("Upsloping","Flat","Downsloping"), col=plot_color)
+
+```
+```{r}
+plot(factor(data$thall_cat), main = "Distribution of Thallasemia", xlab = 'Type', ylab = 'Frequency', 
+     names = c("Null","Fixed Defect", "Normal", "Reversable Defect"), col=plot_color)
+
 ```
 
 ```{r}
@@ -229,6 +240,12 @@ prop.table(fx_table5)
 
 fx_table6 <- table(data$restecg)
 prop.table(fx_table6)
+
+fx_table7 <- table(data$slp)
+prop.table(fx_table7)
+
+fx_table8 <- table(factor(data$thall_cat))
+prop.table(fx_table8)
 
 ```
 
