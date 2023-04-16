@@ -1,0 +1,629 @@
+---
+title: "ADS 502 - Heart Attack Classification"
+author: "Halee Staggs, Vicky van der Wagt, Jesse Gutierrez"
+date: '2023-03-16'
+output:
+  html_document:
+    df_print: paged
+---
+
+
+
+```{r}
+#load package libraries
+library(pROC)
+library(ggplot2)
+library(Hmisc)
+library(corrplot)
+library(tidyverse)
+library(caret)
+library(C50)
+library(rpart)
+library(e1071)
+library(nnet)
+library(NeuralNetTools)
+library(data.table)
+library(dplyr)
+library(randomForest)
+library(ggeffects)
+library(sjPlot)
+library(sjlabelled)
+library(sjmisc)
+library(caTools)
+library(car)
+
+plot_color="darkslategray4"
+```
+# The Data does not have any missing values. 
+
+```{r}
+#read in data file
+data <- read_csv("heart.csv")
+
+#examine data types and descriptives
+summary(data)
+describe(data)
+View(data)
+```
+
+# Some variables need to be updated to factors because they are categorical/ordinal
+```{r}
+#update discrete/binary variables to factors
+data$sex <- factor(data$sex)
+data$cp <- factor(data$cp)
+data$fbs <- factor(data$fbs)
+data$restecg <- factor(data$restecg)
+data$exng <- factor(data$exng)
+data$slp <- factor(data$slp)
+data$caa <- factor(data$caa)
+data$output <- factor(data$output)
+data$thall <- factor(data$thall)
+
+#reexamine data summary for data types
+#summary(data)
+#describe(data)
+
+head(data)
+```
+
+
+# Replace numerical categories with actual categories
+## Even though they were already converted to factors, can look back on categories for reference
+
+```{r}
+#chest pain type
+data$cp_cat<-c("0"="typical_angina","1"="atypical angina","3"="non-anginal pain","4"="asymptomatic")[data$cp]
+
+#false if fasting blood sugar <=120mg/dl, otherwise true
+data$fbs_cat<-c("0"="false","1"="true")[data$fbs]
+
+#resting electrocardiographic results
+data$restecg_cat<-c("0"="normal","1"="ST-T wave abnormality", "2" = "ventricular hypertrophy")[data$restecg]
+
+#exercise induced angina
+data$exng_cat<-c("0"="no","1"="yes")[data$exng]
+
+#slope of peak exercise ST segment
+data$slp_cat<-c("0"="unsloping","1"="flat", "2"="downsloaing")[data$slp]
+
+#thalassemia
+data$thall_cat<-c("0"="null","1"="fixed defect", "2"="normal", "3"="reversable defect")[data$thall]
+
+#thalassemia
+data$output_cat<-c("0"="low risk","1"="high risk")[data$output]
+
+#adding a categorical category for age so we can test for multicollinearity using 
+#chi-squared, which is meant to compare categorical variables
+data$age_range<-cut(data$age, c(20,40,60,80,100))
+
+head(data)
+
+
+
+```
+
+
+# Examine raw distribution of each variable.
+```{r}
+#age is normally distributed
+boxplot(data$age, main = "Distribution of Patients' Ages", ylab = 'Age', col=plot_color)
+```
+```{r}
+#the sample has twice as many women as men
+plot(data$sex, main = "Distribution of Sex", ylab = 'Frequency', xlab = 'Sex', names = c("Male","Female"), col=plot_color)
+```
+
+```{r}
+#each type of chest pain has a different frequency
+plot(data$cp, main = "Distribution of Chest Pain Types", ylab = 'Frequency', xlab = "Chest Pain Type", 
+     names = c("Typical Angina", "Atypical Angina", "Non-Anginal Pain", "Asymptomatic"), col=plot_color)
+```
+
+```{r}
+#blood pressure is fairly normally distributed with a few outliers at the top end. Although they are outliers, this data is plausible and can be kept in the dataset as is
+boxplot(data$trtbps, main = "Distribution of Resting Blood Pressure", ylab = 'Frequency', xlab = "Resting Blood Pressure (mmHg)", col=plot_color)
+```
+```{r}
+#cholesterol is normally distributed with a few outliers at the top end. These are plausible values and can be kept in the dataset
+boxplot(data$chol, main = "Distribution of Cholesterol Levels", ylab = 'Cholesterol (mg/dl)', col=plot_color)
+```
+
+```{r}
+#the two groups are disproportionately represented with the majority of the sample being under 120
+plot(data$fbs, main = "Fasting Blood Sugar Distribution", ylab = 'Frequency', xlab = 'Blood Sugar', 
+     names = c('<= 120 mg/dl','> 120 mg/dl'), col=plot_color)  
+```     
+     
+```{r}
+#left ventricular hypertrophy is underrepresented 
+plot(data$restecg, main = "Distribtion of Resting Electrocardiographic Results", ylab = 'Frequency', xlab = 'ECG Results', 
+     names = c("Normal", "ST-T Wave", "L. Vent. Hyper."), col=plot_color)
+```
+```{r}
+#normally distributed 
+boxplot(data$thalachh, main = "Distribution of Maximum Heart Rate Achieved", ylab = 'Heart Rate (beats per minute)', col=plot_color)
+```
+```{r}
+plot(data$exng, main = "Distribution of Exercise-Induced Angina", xlab = 'History of Agina', ylab = 'Frequency', 
+     names = c("No", "Yes"), col=plot_color)
+```
+
+```{r}
+#positively skewed
+plot(data$caa, main = "Number of Major Vessels Distribution", ylab = 'Frequency', xlab = 'Number of Vessels', col=plot_color)
+```
+
+
+```{r}
+#the less chance group is slightly underrepresented - balance groups before running classification model
+plot(data$output, main = "Distribution of Heart Attack Risk", ylab = 'Frequency', xlab = 'Chance of Heart Attack', 
+     names = c("Less Chance", "More Chance"), col=plot_color)
+```
+
+
+# Summary of data exploration: there are no true outliers in the data. Can leave the data as is. Some variables were not explained on the Kaggle page, so I left those ones out since I cannot interpret them. Listed below.
+## data$thall
+## data$oldpeak
+## data$slp
+
+# Determine if numerical variables are correlated
+```{r}
+#run correlation of numerical values
+corrs <- cor(data[,c(1,4,5,8)])
+corrplot(corrs, method = 'number', tl.cex = .9, number.cex = .9)
+
+#variables are weakly correlated, age and maximum heart rate have strongest correlation -0.4
+
+```
+
+```{r}
+
+head(data, n = 3)
+
+```
+
+# Calculate descriptives
+```{r}
+#numerical values
+mean(data$age)
+sd(data$age)
+median(data$age)
+min(data$age)
+max(data$age)
+
+mean(data$trtbps)
+sd(data$trtbps)
+median(data$trtbps)
+min(data$trtbps)
+max(data$trtbps)
+
+#median(data$caa)
+
+mean(data$chol)
+sd(data$chol)
+median(data$chol)
+min(data$chol)
+max(data$chol)
+
+mean(data$thalachh)
+sd(data$thalachh)
+median(data$thalachh)
+min(data$thalachh)
+max(data$thalachh)
+
+#categorical proportions
+fx_table2 <- table(data$sex)
+prop.table(fx_table2)
+
+fx_table3 <- table(data$exng)
+prop.table(fx_table3)
+
+fx_table4 <- table(data$cp)
+prop.table(fx_table4)
+
+fx_table5 <- table(data$fbs)
+prop.table(fx_table5)
+
+fx_table6 <- table(data$restecg)
+prop.table(fx_table6)
+
+```
+
+# Prepping the data for modeling
+
+## Check for Class Imbalance
+```{r}
+#both classes are well represented, no need to balance 
+fx_table <- table(data$output)
+prop.table(fx_table)
+
+```
+
+## Splitting the data
+```{r}
+set.seed(2)
+data_split <- createDataPartition(data$output, p = .7, list = FALSE, times = 1)
+data_train <- data[data_split,]
+data_test <- data[-data_split,]
+
+
+#verify split proportions
+tr_split <- round((dim(data_train)[1]/dim(data)[1])*100,1)
+ts_split <- round((dim(data_test)[1]/dim(data)[1])*100,1)
+tr_n <- dim(data_train)[1]
+ts_n <- dim(data_test)[1]
+split_train <- as.data.frame(cbind(tr_split,tr_n))
+split_test <- as.data.frame(cbind(ts_split, ts_n))
+split_params <- merge(split_train, split_test)
+split_params
+```
+
+## Baseline Model
+
+```{r}
+#Any model that is useful must beat a TPR of 55%
+baselinetable<- prop.table(table(data_train$output))
+baselinetable
+
+#baseline value assuming all predictictions as positive (1= more chance of heart disease)
+accuracy_baseline = round(baselinetable[2]*100,1)
+
+
+cat("baseline accuracy (all positive/'1' model): ", accuracy_baseline,"\n")
+```
+```{r}
+colnames(data)
+```
+```{r}
+head(data_train)
+```
+# Model Required - Binary Classification Model (do we need this?)
+
+#Define Predictor Variables, and assess multicollinearity
+```{r}
+formula <- output ~ age + sex + slp  + thall + caa
+#removed thall
+
+#using chi-squared test to test for multicollinearity 
+chisq.test(data$age_range, data$thall)
+chisq.test(data$age_range, data$sex)
+chisq.test(data$age_range, data$slp)
+chisq.test(data$age_range, data$caa) #p-value < 0.05 indicating significant correlation
+chisq.test(data$sex, data$slp)
+chisq.test(data$sex, data$thall) #p-value < 0.05 indicating significant correlation
+chisq.test(data$sex, data$caa)
+chisq.test(data$slp, data$thall) #p-value <0.05 indicating significant correlation
+
+
+#removed thall and caa due to multicollinearity concerns (p-values of 0.05 in chi-squared testing)
+formula <- output ~ age + sex + slp
+```
+
+
+# Model Testing - Decision Tree CART
+```{r}
+
+# Build decision tree model
+cart_model <- rpart(formula, data = data_train, method = "class")
+summary(cart_model)
+
+# Had the adjust the dimensions of decision tree as it was too crammed
+par(mar=c(5,5,2,2))
+plot(cart_model, main="Classification Tree", cex=0.7, margin=0.1, branch=0.6) 
+text(cart_model, use.n=TRUE, all=TRUE, cex=0.7)
+
+# In these sets of codes, it added number of observations in each leaf
+n_leaf <- table(cart_model$where)
+n_leaf_pct <- paste0(sprintf("%.2f", prop.table(n_leaf)*100), "%")
+n_leaf_text <- paste0(n_leaf, " (", n_leaf_pct, ")")
+legend("topright", legend=n_leaf_text, bty="n", cex=0.7)
+
+# Predict on test data
+y_pred <- predict(cart_model, data_train, type = "class")
+
+# Applied model on test data
+predict_data <- predict(cart_model, data_test, type = 'class')
+
+# Created a table to determine the accuracy of the model
+tcart <- table(predict_data,data_test$output)
+
+TN_cart <- tcart[1,1]
+FN_cart <- tcart[2,1]
+FP_cart <- tcart[1,2]
+TP_cart <- tcart[2,2] 
+
+#evaluate model
+decimals <-1
+
+accuracy_cart <- round((((TP_cart+TN_cart) / (TP_cart + TN_cart + FP_cart + FN_cart)))*100,decimals)
+error_rate_cart <- round((100-accuracy_cart),decimals)
+sensitivity_cart <- round((TP_cart/(FN_cart+TP_cart))*100,decimals)
+specificity_cart <- round((TN_cart/(TN_cart+FP_cart))*100,decimals)
+precision_cart <- round((TP_cart/(TP_cart+FP_cart))*100,decimals)
+recall_cart <- sensitivity_cart
+f1_cart <- round((2*((precision_cart*recall_cart)/(precision_cart + recall_cart))),decimals)
+f2_cart <- round((5*((precision_cart*recall_cart)/((4*precision_cart)+recall_cart))),decimals)
+f3_cart <- round((1.25*((precision_cart*recall_cart)/((0.25*precision_cart)+ recall_cart))),decimals)
+
+cat("cart.0 accuracy: ", accuracy_cart)
+
+
+```
+
+
+```{r}
+# The high feature importance score indicates the predictive attributes has on the output
+# As evident, caa and thall are the greatest predictive attributes
+var_importance <- varImp(cart_model)
+print(var_importance)
+```
+
+```{r}
+# The high feature importance score indicates the predictive attributes has on the output
+# As evident, caa and thall_cat are the greatest predictive attributes
+var_importance <- varImp(cart_model)
+print(var_importance)
+```
+
+
+# Model Testing - Decision Tree with C5.0
+```{r}
+#decision tree
+C5_heart <- C5.0(formula, data = data_train) 
+summary(C5_heart)
+
+#Plot model
+plot(C5_heart)
+
+#test set prediction
+ypred_c5 <- predict(object = C5_heart, newdata = data_test)
+ypred_c5
+
+# confusion matrix
+tc5 <- table(ypred_c5, data_test$output)
+
+TN_c5 <- tc5[1,1]
+FN_c5 <- tc5[2,1]
+FP_c5 <- tc5[1,2]
+TP_c5 <- tc5[2,2] 
+
+#evaluate model
+decimals <-1
+
+accuracy_c5 <- round((((TP_c5+TN_c5) / (TP_c5 + TN_c5 + FP_c5 + FN_c5)))*100,decimals)
+error_rate_c5 <- round((100-accuracy_c5),decimals)
+sensitivity_c5 <- round((TP_c5/(FN_c5+TP_c5))*100,decimals)
+specificity_c5 <- round((TN_c5/(TN_c5+FP_c5))*100,decimals)
+precision_c5 <- round((TP_c5/(TP_c5+FP_c5))*100,decimals)
+recall_c5 <- sensitivity_c5
+f1_c5 <- round((2*((precision_c5*recall_c5)/(precision_c5 + recall_c5))),decimals)
+f2_c5 <- round((5*((precision_c5*recall_c5)/((4*precision_c5)+recall_c5))),decimals)
+f3_c5 <- round((1.25*((precision_c5*recall_c5)/((0.25*precision_c5)+ recall_c5))),decimals)
+
+cat("C5.0 accuracy: ", accuracy_c5)
+```
+
+```{r}
+# The high feature importance score indicates the predictive attributes has on the output
+# As evident, caa and thall_cat are the greatest predictive attributes
+var_importance <- varImp(C5_heart)
+print(var_importance)
+```
+
+
+# Model Testing - Logistic Regression
+
+```{r}
+#logistic regression
+logreg <- glm(formula, 
+                 data = data_train, family = 'binomial'(link = 'logit'))
+
+summary(logreg)
+#plot function to see odds ratio of each predictor
+plot_model(logreg, sort.est = TRUE, show.values = TRUE, value.offset = .45, vline.color = 'red',
+           axis.lim = c(0.000,35))
+
+#run test data through model
+ypred_log <- predict(logreg, newdata = data_test, type = 'response')
+#update output probabilities to binary 0/1
+ypred_log <- if_else(ypred_log > 0.5,1,0)
+
+tlr <- table(ypred_log, data_test$output)
+
+TN_lr <- tlr[1,1]
+FN_lr <- tlr[2,1]
+FP_lr <- tlr[1,2]
+TP_lr <- tlr[2,2] 
+
+#evaluate model
+decimals <-1
+
+accuracy_lr <- round((((TP_lr+TN_lr) / (TP_lr + TN_lr + FP_lr + FN_lr)))*100,decimals)
+error_rate_lr <- round((100-accuracy_lr),decimals)
+sensitivity_lr <- round((TP_lr/(FN_lr+TP_lr))*100,decimals)
+specificity_lr <- round((TN_lr/(TN_lr+FP_lr))*100,decimals)
+precision_lr <- round((TP_lr/(TP_lr+FP_lr))*100,decimals)
+recall_lr <- sensitivity_lr
+f1_lr <- round((2*((precision_lr*recall_lr)/(precision_lr + recall_lr))),decimals)
+f2_lr <- round((5*((precision_lr*recall_lr)/((4*precision_lr)+recall_lr))),decimals)
+f3_lr <- round((1.25*((precision_lr*recall_lr)/((0.25*precision_lr)+ recall_lr))),decimals)
+
+cat("logistic regression accuracy: ", accuracy_lr)
+
+```
+
+
+
+# Model Testing - Random Forest
+
+```{r}
+
+# Build random forest model
+rf01 <- randomForest(formula, data = data_train, ntree = 100, type = 'classification')
+
+summary(rf01)
+
+# Display results
+plot(rf01)
+
+# Make predictions on the test data
+rf_pred <- predict(rf01, newdata = data_test)
+
+# Create a confusion matrix
+library(caret)
+trf <- table(rf_pred, data_test$output)
+
+
+TN_rf <- trf[1,1]
+FN_rf <- trf[2,1]
+FP_rf <- trf[1,2]
+TP_rf <- trf[2,2] 
+
+#evaluate model
+decimals <-1
+
+accuracy_rf <- round((((TP_rf+TN_rf) / (TP_rf + TN_rf + FP_rf + FN_rf)))*100,decimals)
+error_rate_rf <- round((100-accuracy_rf),decimals)
+sensitivity_rf <- round((TP_rf/(FN_rf+TP_rf))*100,decimals)
+specificity_rf <- round((TN_rf/(TN_rf+FP_rf))*100,decimals)
+precision_rf <- round((TP_rf/(TP_rf+FP_rf))*100,decimals)
+recall_rf <- sensitivity_rf
+f1_rf <- round((2*((precision_rf*recall_rf)/(precision_rf + recall_rf))),decimals)
+f2_rf <- round((5*((precision_rf*recall_rf)/((4*precision_rf)+recall_rf))),decimals)
+f3_rf <- round((1.25*((precision_rf*recall_rf)/((0.25*precision_rf)+ recall_rf))),decimals)
+
+cat("random forest accuracy: ", accuracy_rf)
+
+```
+
+
+# Model Testing - Bayesian Network (Naive Bayes)
+
+```{r}
+#bayesian network
+library(e1071)
+#generate model
+nbheart <- naiveBayes(formula, data = data_train) 
+summary(nbheart)
+
+nb_ypred <- predict(object = nbheart, newdata = data_test)
+#generate confusion matrix
+tnb <- table(nb_ypred, data_test$output)
+
+#extract values from confusion matrix to prep for model evaulation
+TN_nb <- tnb[1,1]
+FN_nb <- tnb[2,1]
+FP_nb <- tnb[1,2]
+TP_nb <- tnb[2,2] 
+
+#evaluate model
+decimals <-1
+
+accuracy_nb <- round((((TP_nb+TN_nb) / (TP_nb + TN_nb + FP_nb + FN_nb)))*100,decimals)
+error_rate_nb <- round((100-accuracy_nb),decimals)
+sensitivity_nb <- round((TP_nb/(FN_nb+TP_nb))*100,decimals)
+specificity_nb <- round((TN_nb/(TN_nb+FP_nb))*100,decimals)
+precision_nb <- round((TP_nb/(TP_nb+FP_nb))*100,decimals)
+recall_nb <- sensitivity_nb
+f1_nb <- round((2*((precision_nb*recall_nb)/(precision_nb + recall_nb))),decimals)
+f2_nb <- round((5*((precision_nb*recall_nb)/((4*precision_nb)+recall_nb))),decimals)
+f3_nb <- round((1.25*((precision_nb*recall_nb)/((0.25*precision_nb)+ recall_nb))),decimals)
+
+nbheart
+cat("naive bayes accuracy: ", accuracy_nb)
+```
+
+# Model Testing - Neural Network
+
+```{r}
+nn_heart <-  nnet(output ~ age + sex + slp, data = data_train, size=3)
+yprednn <- predict(nn_heart, data_test, type="class")
+
+#summary(nn_heart)
+#visualize neural network
+plotnet(nn_heart)
+
+tnn<-table(yprednn,data_test$output)
+tnn
+
+TP_nn <- tnn[1,1]
+FN_nn <- tnn[2,1]
+FP_nn <- tnn[1,2]
+TN_nn <- tnn[2,2] 
+
+decimals <-1
+
+accuracy_nn <- round((((TP_nn+TN_nn) / (TP_nn + TN_nn + FP_nn + FN_nn)))*100,decimals)
+error_rate_nn <- round((100-accuracy_nn),decimals)
+sensitivity_nn <- round((TP_nn/(FN_nn+TP_nn))*100,decimals)
+specificity_nn <- round((TN_nn/(TN_nn+FP_nn))*100,decimals)
+precision_nn <- round((TP_nn/(TP_nn+FP_nn))*100,decimals)
+recall_nn <- sensitivity_nn
+f1_nn <- round((2*((precision_nn*recall_nn)/(precision_nn + recall_nn))),decimals)
+f2_nn <- round((5*((precision_nn*recall_nn)/((4*precision_nn)+recall_nn))),decimals)
+f3_nn <- round((1.25*((precision_nn*recall_nn)/((0.25*precision_nn)+ recall_nn))),decimals)
+
+#cat("neural network accuracy: ", accuracy_nn)
+
+nn_heart$wts
+```
+
+# Model Evaulation Table
+
+```{r }
+DT = data.table(
+  Model_Evaluation_Table= c("accuracy", "error rate", "sensitivity", "specificity", "precision", "F1", "F2", "F3"),
+  Baseline=c(accuracy_baseline, "","","","","","",""),
+  CART= c(accuracy_cart, error_rate_cart, sensitivity_cart, specificity_cart, precision_cart, f1_cart, f2_cart, f3_cart),
+  C5.0=c(accuracy_c5, error_rate_c5, sensitivity_c5, specificity_c5, precision_c5, f1_c5, f2_c5, f3_c5),
+  LogisticRegression=c(accuracy_lr, error_rate_lr, sensitivity_lr, specificity_lr, precision_lr, f1_lr, f2_lr, f3_lr),
+  NaiveBayes=c(accuracy_nb, error_rate_nb, sensitivity_nb, specificity_nb, precision_nb,f1_nb, f2_nb, f3_nb),
+  NeuralNetwork=c(accuracy_nn, error_rate_nn, sensitivity_nn, specificity_nn, precision_nn, f1_nn, f2_nn, f3_nn),
+  RandomForest=c(accuracy_rf, error_rate_rf, sensitivity_rf, specificity_rf, precision_rf, f1_rf, f2_rf, f3_rf))
+
+DT
+```
+# Comparing ROC curves for all models
+
+```{r}
+#data_test$cartpred <- factor(y_pred, ordered = TRUE)
+data_test$c50pred <- factor(ypred_c5, ordered = TRUE)
+data_test$logpred <- factor(ypred_log, ordered = TRUE)
+data_test$rfpred <- factor(rf_pred, ordered = TRUE)
+data_test$nbpred <- factor(nb_ypred, ordered = TRUE)
+data_test$nnpred <- factor(yprednn, ordered = TRUE)
+
+c50ROC <- roc(data_test$output ~ data_test$c50pred,plot=TRUE,print.auc=TRUE,
+              col="green",lwd=4,print.auc.y=0.4,
+              main="C5.0 ROC Curve")
+
+logROC <- roc(data_test$output ~ data_test$logpred,plot=TRUE,print.auc=TRUE,
+                   col="red",lwd = 4,print.auc.y=0.4,
+              main = "Logistic Regression ROC Curve")
+
+rfROC <- roc(data_test$output ~ data_test$rfpred,plot=TRUE,print.auc=TRUE,
+                   col="orange",lwd = 4,print.auc.y=0.4,
+             main = "Random Forest ROC Curve")
+
+nbROC <- roc(data_test$output ~ data_test$nbpred,plot=TRUE,print.auc=TRUE,
+                   col="purple",lwd = 4,print.auc.y=0.4,
+             main = "Naive Bayes ROC Curve")
+
+nnROC <- roc(data_test$output ~ data_test$nnpred,plot=TRUE,print.auc=TRUE,
+                   col="hotpink",lwd = 4,print.auc.y=0.4,
+             main = "Neural Network ROC Curve")
+
+
+```
+
+
+
+# References
+
+## Joachim Schork. (2022, May 19). Create data.table in R (3 examples): How to initialize, Construct &amp; Make. Statistics Globe. Retrieved March 26, 2023, from https://statisticsglobe.com/create-data-table-r 
+## Kuhn, M. (2019). The caret package. https://topepo.github.io/caret/index.html
+## Larose, C., & Larose, D. (2019). Data Science Using Python and R. John Wiley & Sons, Inc. 
+## Daniel Lüdecke. (2023). Plotting Estimates (Fixed Effects) of Regression Models. https://strengejacke.github.io/sjPlot/articles/plot_model_estimates.html
+## Ruchi Deshpande. (2020). ROC Curve and AUC in Machine learning and R pROC Package. https://medium.com/swlh/roc-curve-and-auc-detailed-understanding-and-r-proc-package-86d1430a3191
+## Singh, D. (2020, January 21). Deepika Singh. Pluralsight. Retrieved April 4, 2023, from https://www.pluralsight.com/guides/testing-for-relationships-between-categorical-variables-using-the-chi-square-test 
+
