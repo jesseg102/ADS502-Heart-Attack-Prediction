@@ -116,7 +116,7 @@ boxplot(data$age, main = "Distribution of Patients' Ages", ylab = 'Age', col=plo
 ```
 ```{r}
 #the sample has twice as many women as men
-plot(data$sex, main = "Distribution of Sex", ylab = 'Frequency', xlab = 'Sex', names = c("Male","Female"), col=plot_color)
+plot(data$sex, main = "Distribution of Sex", ylab = 'Frequency', xlab = 'Sex', names = c("Female","Male"), col=plot_color)
 ```
 
 ```{r}
